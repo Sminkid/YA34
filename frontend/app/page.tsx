@@ -251,7 +251,7 @@ export default function Home() {
                           </span>
                           {person.roles.map((role, i) => (
                             <span key={i} className="text-[11px] text-gray-400">
-                              {role.service} · {role.department}
+                              {role.service} · {role.department} · {role.position}
                             </span>
                           ))}
                         </>
@@ -262,7 +262,7 @@ export default function Home() {
                           </span>
                           {person.roles.map((role, i) => (
                             <span key={i} className="text-[11px] text-gray-400">
-                              {role.service} · {role.department}
+                              {role.service} · {role.department} · {role.position}
                             </span>
                           ))}
                         </>
@@ -313,7 +313,7 @@ export default function Home() {
                             </div>
 
                             {service.members.length > 0 && (
-                              <div className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+                              <div className="absolute left-0 bottom-full mb-1 z-50 hidden group-hover:block w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
                                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">YA34 Serving</p>
                                 <div className="flex flex-col gap-1.5">
                                   {service.members.map((member, i) => (
