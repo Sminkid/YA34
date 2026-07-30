@@ -251,7 +251,7 @@ export default function Home() {
                           </span>
                           {person.roles.map((role, i) => (
                             <span key={i} className="text-[11px] text-gray-400">
-                              {role.service} · {role.department} · {role.position} · {role.status}
+                              {role.service} · {role.department}
                             </span>
                           ))}
                         </>
@@ -262,7 +262,7 @@ export default function Home() {
                           </span>
                           {person.roles.map((role, i) => (
                             <span key={i} className="text-[11px] text-gray-400">
-                              {role.service} · {role.department} · {role.position}
+                              {role.service} · {role.department}
                             </span>
                           ))}
                         </>
