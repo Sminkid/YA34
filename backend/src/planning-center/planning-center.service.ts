@@ -24,127 +24,144 @@ export class PlanningCenterService {
   }
 
   async getMembersWithServiceStatus() {
-    // Step 1: Get all YA3/YA4 tagged members
-    const membersResponse = await firstValueFrom(
+  // Step 1: Get all YA3/YA4 tagged members
+  const membersResponse = await firstValueFrom(
+    this.httpService.get(
+      `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
+      { headers: this.getAuthHeader() },
+    ),
+  );
+  const members = membersResponse.data.data;
+
+  // Step 2: Dynamically fetch the next upcoming Sunday plans
+  const upcomingPlansResponse = await firstValueFrom(
+    this.httpService.get(
+      `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
+      { headers: this.getAuthHeader() },
+    ),
+  );
+  const upcomingPlans = upcomingPlansResponse.data.data;
+  const next930 = upcomingPlans.find((p: any) => p.attributes.title === '9:30am');
+  const next1130 = upcomingPlans.find((p: any) => p.attributes.title === '11:30am');
+
+  if (!next930 || !next1130) return [];
+
+  const [plan930Response, plan1130Response] = await Promise.all([
+    firstValueFrom(
       this.httpService.get(
-        `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
+        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next930.id}/team_members?per_page=100`,
         { headers: this.getAuthHeader() },
       ),
-    );
-    const members = membersResponse.data.data;
-
-    // Step 2: Dynamically fetch the next upcoming Sunday plans
-    const upcomingPlansResponse = await firstValueFrom(
+    ),
+    firstValueFrom(
       this.httpService.get(
-        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
+        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next1130.id}/team_members?per_page=100`,
         { headers: this.getAuthHeader() },
       ),
-    );
-    const upcomingPlans = upcomingPlansResponse.data.data;
-    const next930 = upcomingPlans.find((p: any) => p.attributes.title === '9:30am');
-    const next1130 = upcomingPlans.find((p: any) => p.attributes.title === '11:30am');
+    ),
+  ]);
 
-    if (!next930 || !next1130) return [];
+  const teamMembers930 = plan930Response.data.data;
+  const teamMembers1130 = plan1130Response.data.data;
 
-    const [plan930Response, plan1130Response] = await Promise.all([
-      firstValueFrom(
-        this.httpService.get(
-          `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next930.id}/team_members?per_page=100`,
-          { headers: this.getAuthHeader() },
-        ),
-      ),
-      firstValueFrom(
-        this.httpService.get(
-          `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next1130.id}/team_members?per_page=100`,
-          { headers: this.getAuthHeader() },
-        ),
-      ),
-    ]);
+  // Step 3: Fetch team names
+  const teamsResponse = await firstValueFrom(
+    this.httpService.get(
+      `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/teams`,
+      { headers: this.getAuthHeader() },
+    ),
+  );
+  const teamMap = new Map(
+    teamsResponse.data.data.map((t: any) => [t.id, t.attributes.name])
+  );
 
-    const teamMembers930 = plan930Response.data.data;
-    const teamMembers1130 = plan1130Response.data.data;
+  // Step 4: Enrich each member
+  const enriched = await Promise.all(
+    members.map(async (member: any) => {
+      const serving930 = teamMembers930.filter(
+        (tm: any) => tm.relationships.person.data.id === member.id,
+      );
+      const serving1130 = teamMembers1130.filter(
+        (tm: any) => tm.relationships.person.data.id === member.id,
+      );
 
-    // Step 3: Fetch team names
-    const teamsResponse = await firstValueFrom(
-      this.httpService.get(
-        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/teams`,
-        { headers: this.getAuthHeader() },
-      ),
-    );
-    const teamMap = new Map(
-      teamsResponse.data.data.map((t: any) => [t.id, t.attributes.name])
-    );
+      const roles = [
+        ...serving930.map((s: any) => ({
+          position: s.attributes.team_position_name,
+          department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
+          service: '9:30am',
+          status: s.attributes.status === 'C' ? 'Confirmed' :
+                  s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
+        })),
+        ...serving1130.map((s: any) => ({
+          position: s.attributes.team_position_name,
+          department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
+          service: '11:30am',
+          status: s.attributes.status === 'C' ? 'Confirmed' :
+                  s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
+        })),
+      ];
 
-    // Step 4: Enrich each member
-    const enriched = await Promise.all(
-      members.map(async (member: any) => {
-        const serving930 = teamMembers930.filter(
-          (tm: any) => tm.relationships.person.data.id === member.id,
-        );
-        const serving1130 = teamMembers1130.filter(
-          (tm: any) => tm.relationships.person.data.id === member.id,
-        );
+      const servingThisSunday =
+        serving930.some((s: any) => s.attributes.status !== 'D') ||
+        serving1130.some((s: any) => s.attributes.status !== 'D');
 
-        const roles = [
-          ...serving930.map((s: any) => ({
-            position: s.attributes.team_position_name,
-            department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
-            service: '9:30am',
-            status: s.attributes.status === 'C' ? 'Confirmed' :
-                    s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
-          })),
-          ...serving1130.map((s: any) => ({
-            position: s.attributes.team_position_name,
-            department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
-            service: '11:30am',
-            status: s.attributes.status === 'C' ? 'Confirmed' :
-                    s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
-          })),
-        ];
-
-        const servingThisSunday =
-          serving930.some((s: any) => s.attributes.status !== 'D') ||
-          serving1130.some((s: any) => s.attributes.status !== 'D');
-
-        try {
-          const profileResponse = await firstValueFrom(
+      try {
+        const [profileResponse, blockoutsResponse] = await Promise.all([
+          firstValueFrom(
             this.httpService.get(
               `${this.baseUrl}/people/v2/people/${member.id}?include=emails,phone_numbers`,
               { headers: this.getAuthHeader() },
             ),
-          );
-          const profile = profileResponse.data.data;
-          const included = profileResponse.data.included || [];
-          const email = included.find((i: any) => i.type === 'Email')?.attributes?.address || null;
-          const phone = included.find((i: any) => i.type === 'PhoneNumber')?.attributes?.national || null;
+          ),
+          firstValueFrom(
+            this.httpService.get(
+              `${this.baseUrl}/services/v2/people/${member.id}/blockouts?filter=future`,
+              { headers: this.getAuthHeader() },
+            ),
+          ),
+        ]);
 
-          return {
-            id: member.id,
-            name: profile.attributes.name,
-            avatar: profile.attributes.avatar,
-            status: profile.attributes.status,
-            email,
-            phone,
-            servingThisSunday,
-            roles,
-          };
-        } catch {
-          return {
-            id: member.id,
-            name: member.attributes.full_name,
-            avatar: member.attributes.photo_thumbnail_url,
-            status: member.attributes.status,
-            email: null,
-            phone: null,
-            servingThisSunday,
-            roles,
-          };
-        }
-      }),
-    );
+        const profile = profileResponse.data.data;
+        const included = profileResponse.data.included || [];
+        const email = included.find((i: any) => i.type === 'Email')?.attributes?.address || null;
+        const phone = included.find((i: any) => i.type === 'PhoneNumber')?.attributes?.national || null;
 
-    return enriched;
-  }
+        const blockouts = blockoutsResponse.data.data.map((b: any) => ({
+          startDate: b.attributes.starts_at,
+          endDate: b.attributes.ends_at,
+          reason: b.attributes.reason || null,
+        }));
+
+        return {
+          id: member.id,
+          name: profile.attributes.name,
+          avatar: profile.attributes.avatar,
+          status: profile.attributes.status,
+          email,
+          phone,
+          servingThisSunday,
+          roles,
+          blockouts,
+        };
+      } catch {
+        return {
+          id: member.id,
+          name: member.attributes.full_name,
+          avatar: member.attributes.photo_thumbnail_url,
+          status: member.attributes.status,
+          email: null,
+          phone: null,
+          servingThisSunday,
+          roles,
+          blockouts: [],
+        };
+      }
+    }),
+  );
+
+  return enriched;
+}
 
   async getUpcomingEvents() {
     const membersResponse = await firstValueFrom(

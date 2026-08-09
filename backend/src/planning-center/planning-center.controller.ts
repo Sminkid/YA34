@@ -24,5 +24,4 @@ export class PlanningCenterController {
   getAllServicePlans() {
     return this.planningCenterService.getAllServicePlans();
   }
-  
 }
