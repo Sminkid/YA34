@@ -23,6 +23,15 @@ export class PlanningCenterService {
     };
   }
 
+  private isBlockedOutOn(blockouts: { startDate: string; endDate: string }[], dateStr: string): boolean {
+  return blockouts.some((b) => {
+    const start = b.startDate.slice(0, 10);
+    const end = b.endDate.slice(0, 10);
+    return dateStr >= start && dateStr <= end;
+    });
+  }
+
+
   async getMembersWithServiceStatus() {
   // Step 1: Get all YA3/YA4 tagged members
   const membersResponse = await firstValueFrom(
@@ -45,6 +54,8 @@ export class PlanningCenterService {
   const next1130 = upcomingPlans.find((p: any) => p.attributes.title === '11:30am');
 
   if (!next930 || !next1130) return [];
+
+  const sundayDate = next930.attributes.sort_date.slice(0, 10); // "YYYY-MM-DD"
 
   const [plan930Response, plan1130Response] = await Promise.all([
     firstValueFrom(
@@ -126,12 +137,14 @@ export class PlanningCenterService {
         const included = profileResponse.data.included || [];
         const email = included.find((i: any) => i.type === 'Email')?.attributes?.address || null;
         const phone = included.find((i: any) => i.type === 'PhoneNumber')?.attributes?.national || null;
-
+  
         const blockouts = blockoutsResponse.data.data.map((b: any) => ({
           startDate: b.attributes.starts_at,
           endDate: b.attributes.ends_at,
           reason: b.attributes.reason || null,
         }));
+
+        const unavailableThisSunday = this.isBlockedOutOn(blockouts, sundayDate);
 
         return {
           id: member.id,
@@ -143,6 +156,7 @@ export class PlanningCenterService {
           servingThisSunday,
           roles,
           blockouts,
+          unavailableThisSunday,
         };
       } catch {
         return {

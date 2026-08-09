@@ -10,12 +10,6 @@ interface Role {
   status: string
 }
 
-interface Blockout {
-  startDate: string
-  endDate: string
-  reason: string | null
-}
-
 interface Person {
   id: string
   name: string
@@ -25,7 +19,7 @@ interface Person {
   phone: string | null
   servingThisSunday: boolean
   roles: Role[]
-  blockouts: Blockout[]
+  unavailableThisSunday: boolean
 }
 
 interface ServingMember {
@@ -251,18 +245,11 @@ export default function Home() {
 
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      {person.blockouts?.length > 0 && (
-                          <div className="mt-1 flex flex-col gap-0.5">
-                            {person.blockouts.map((b, i) => (
-                              <span key={i} className="text-[10px] text-orange-500 font-medium">
-                                Blocked: {new Date(b.startDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                                {b.endDate !== b.startDate && ` – ${new Date(b.endDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`}
-                                {b.reason && ` · ${b.reason}`}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      {person.servingThisSunday ? (
+                      {person.unavailableThisSunday ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">
+                          Not Available
+                        </span>
+                      ) : person.servingThisSunday ? (
                         <>
                           <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
                             Serving Sunday
