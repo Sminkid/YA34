@@ -30,17 +30,70 @@ export class PlanningCenterService {
     return dateStr >= start && dateStr <= end;
     });
   }
+  private cache = new Map<string, { data: any; expiresAt: number }>();
+
+  private async getCached<T>(key: string, ttlMs: number, fetchFn: () => Promise<T>): Promise<T> {
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data as T;
+    }
+    const data = await fetchFn();
+    this.cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+    return data;
+  }
+
+  
+  private async mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+private async getYA34Members(): Promise<any[]> {
+  return this.getCached('ya34-members', 30000, async () => {
+    const res = await firstValueFrom(
+      this.httpService.get(
+        `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
+        { headers: this.getAuthHeader() },
+      ),
+    );
+    return res.data.data;
+  });
+}
+
+private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startDate: string; endDate: string }[]>> {
+  return this.getCached('blockouts-by-member', 30000, async () => {
+    const map = new Map<string, { startDate: string; endDate: string }[]>();
+    await this.mapWithConcurrency(members, 5, async (m: any) => {
+      try {
+        const res = await firstValueFrom(
+          this.httpService.get(
+            `${this.baseUrl}/services/v2/people/${m.id}/blockouts?filter=future`,
+            { headers: this.getAuthHeader() },
+          ),
+        );
+        map.set(m.id, res.data.data.map((b: any) => ({
+          startDate: b.attributes.starts_at,
+          endDate: b.attributes.ends_at,
+        })));
+      } catch {
+        map.set(m.id, []);
+      }
+    });
+    return map;
+  });
+}
+
+
 
 
   async getMembersWithServiceStatus() {
   // Step 1: Get all YA3/YA4 tagged members
-  const membersResponse = await firstValueFrom(
-    this.httpService.get(
-      `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
-      { headers: this.getAuthHeader() },
-    ),
-  );
-  const members = membersResponse.data.data;
+    const members = await this.getYA34Members();
 
   // Step 2: Dynamically fetch the next upcoming Sunday plans
   const upcomingPlansResponse = await firstValueFrom(
@@ -185,6 +238,25 @@ export class PlanningCenterService {
       ),
     );
     const ya34MemberIds = new Set(membersResponse.data.data.map((m: any) => m.id));
+    const blockoutsByMember = new Map<string, { startDate: string; endDate: string }[]>();
+
+      await this.mapWithConcurrency(
+        membersResponse.data.data, 5, async (m: any) => {
+          try {
+            const res = await firstValueFrom(
+              this.httpService.get(
+                `${this.baseUrl}/services/v2/people/${m.id}/blockouts?filter=future`,
+                { headers: this.getAuthHeader() },
+              ),
+            );
+            blockoutsByMember.set(m.id, res.data.data.map((b: any) => ({
+              startDate: b.attributes.starts_at,
+              endDate: b.attributes.ends_at,
+            })));
+          } catch {
+            blockoutsByMember.set(m.id, []);
+          }
+        });
 
     const [mainResponse, northResponse] = await Promise.all([
       firstValueFrom(
@@ -213,6 +285,7 @@ export class PlanningCenterService {
         const ya34Members = teamResponse.data.data.filter(
           (tm: any) => ya34MemberIds.has(tm.relationships.person.data.id),
         );
+        const planDate = p.attributes.sort_date.slice(0, 10);
         return {
           id: p.id,
           date: p.attributes.dates,
@@ -220,13 +293,20 @@ export class PlanningCenterService {
           title: p.attributes.title,
           serviceType,
           peopleCount: ya34Members.length,
-          members: ya34Members.map((tm: any) => ({
-            name: tm.attributes.name,
-            position: tm.attributes.team_position_name,
-            status: tm.attributes.status === 'C' ? 'Confirmed' :
-                    tm.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
-            photo: tm.attributes.photo_thumbnail,
-          })),
+          members: ya34Members.map((tm: any) => {
+            const personId = tm.relationships.person.data.id;
+            const blockouts = blockoutsByMember.get(personId) || [];
+            const unavailable = this.isBlockedOutOn(blockouts, planDate);
+            return {
+              name: tm.attributes.name,
+              position: tm.attributes.team_position_name,
+              status: unavailable
+                ? 'Not Available'
+                : tm.attributes.status === 'C' ? 'Confirmed'
+                : tm.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
+              photo: tm.attributes.photo_thumbnail,
+            };
+          }),
         };
       } catch {
         return {
@@ -272,14 +352,17 @@ export class PlanningCenterService {
   }
 
   async getAllServicePlans() {
-    const membersResponse = await firstValueFrom(
+    const members = await this.getCached('ya34-members', 30000, async () => {
+    const res = await firstValueFrom(
       this.httpService.get(
         `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
         { headers: this.getAuthHeader() },
       ),
     );
-    const ya34MemberIds = new Set(membersResponse.data.data.map((m: any) => m.id));
+    return res.data.data;
+  });
 
+    const ya34MemberIds = new Set(members.map((m: any) => m.id));
     const now = new Date();
     const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const twoMonthsAhead = new Date(now.getFullYear(), now.getMonth() + 2, 1);

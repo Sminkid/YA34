@@ -337,6 +337,7 @@ export default function Home() {
                                         <span className={`text-[10px] font-bold px-1 rounded ${
                                           member.status === 'Confirmed' ? 'bg-emerald-50 text-emerald-700' :
                                           member.status === 'Declined' ? 'bg-red-50 text-red-700' :
+                                          member.status === 'Not Available' ? 'bg-orange-50 text-orange-700' :
                                           'bg-gray-100 text-gray-500'
                                         }`}>{member.status}</span>
                                       </div>
