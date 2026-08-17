@@ -53,7 +53,11 @@ export class PlanningCenterService {
     if (cached && cached.expiresAt > Date.now()) {
       return cached.promise;
     }
-    const promise = fetchFn();
+    const promise = fetchFn().catch((err) => {
+      this.cache.delete(key);
+      throw err;
+    });
+
     this.cache.set(key, { promise, expiresAt: Date.now() + ttlMs });
     return promise;
   }
@@ -76,7 +80,7 @@ export class PlanningCenterService {
 }
 
 private async getYA34Members(): Promise<any[]> {
-  return this.getCached('ya34-members', 30000, async () => {
+  return this.getCached('ya34-members', 6 * 60 * 60 * 1000, async () => {
     const res = await firstValueFrom(
       this.httpService.get(
         `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
@@ -88,7 +92,7 @@ private async getYA34Members(): Promise<any[]> {
 }
 
 private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startDate: string; endDate: string }[]>> {
-  return this.getCached('blockouts-by-member', 30000, async () => {
+  return this.getCached('blockouts-by-member', 6 * 60 * 60 * 1000, async () => {
     const map = new Map<string, { startDate: string; endDate: string }[]>();
     await this.mapWithConcurrency(members, 5, async (m: any) => {
       try {
@@ -118,13 +122,12 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
     const members = await this.getYA34Members();
 
   // Step 2: Dynamically fetch the next upcoming Sunday plans
-  const upcomingPlansResponse = await firstValueFrom(
-    this.httpService.get(
-      `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
-      { headers: this.getAuthHeader() },
-    ),
+  const upcomingPlansData = await this.cachedGet(
+    `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
+    6 * 60 * 60 * 1000,
   );
-  const upcomingPlans = upcomingPlansResponse.data.data;
+
+  const upcomingPlans = upcomingPlansData.data;
   const next930 = upcomingPlans.find((p: any) => p.attributes.title === '9:30am');
   const next1130 = upcomingPlans.find((p: any) => p.attributes.title === '11:30am');
 
@@ -132,31 +135,25 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
 
   const sundayDate = next930.attributes.sort_date.slice(0, 10); // "YYYY-MM-DD"
 
-  const [plan930Response, plan1130Response] = await Promise.all([
-    firstValueFrom(
-      this.httpService.get(
-        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next930.id}/team_members?per_page=100`,
-        { headers: this.getAuthHeader() },
-      ),
-    ),
-    firstValueFrom(
-      this.httpService.get(
-        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next1130.id}/team_members?per_page=100`,
-        { headers: this.getAuthHeader() },
-      ),
-    ),
+  const [plan930Data, plan1130Data] = await Promise.all([
+    this.cachedGet(`${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next930.id}/team_members?per_page=100`, 3 * 60 * 1000),
+    this.cachedGet(`${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next1130.id}/team_members?per_page=100`, 3 * 60 * 1000),
   ]);
 
-  const teamMembers930 = plan930Response.data.data;
-  const teamMembers1130 = plan1130Response.data.data;
+  const teamMembers930 = plan930Data.data;
+  const teamMembers1130 = plan1130Data.data;
+
 
   // Step 3: Fetch team names
-  const teamsResponse = await firstValueFrom(
-    this.httpService.get(
-      `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/teams`,
-      { headers: this.getAuthHeader() },
+  const teamsResponse = await this.getCached('teams', 6 * 60 * 60 * 1000, () =>
+    firstValueFrom(
+      this.httpService.get(
+        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/teams`,
+        { headers: this.getAuthHeader() },
+      ),
     ),
   );
+
   const teamMap = new Map(
     teamsResponse.data.data.map((t: any) => [t.id, t.attributes.name])
   );
@@ -193,27 +190,17 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
         serving1130.some((s: any) => s.attributes.status !== 'D');
 
       try {
-        const [profileResponse, blockoutsResponse] = await Promise.all([
-          firstValueFrom(
-            this.httpService.get(
-              `${this.baseUrl}/people/v2/people/${member.id}?include=emails,phone_numbers`,
-              { headers: this.getAuthHeader() },
-            ),
-          ),
-          firstValueFrom(
-            this.httpService.get(
-              `${this.baseUrl}/services/v2/people/${member.id}/blockouts?filter=future`,
-              { headers: this.getAuthHeader() },
-            ),
-          ),
+        const [profileData, blockoutsData] = await Promise.all([
+          this.cachedGet(`${this.baseUrl}/people/v2/people/${member.id}?include=emails,phone_numbers`, 6 * 60 * 60 * 1000),
+          this.cachedGet(`${this.baseUrl}/services/v2/people/${member.id}/blockouts?filter=future`, 6 * 60 * 60 * 1000),
         ]);
 
-        const profile = profileResponse.data.data;
-        const included = profileResponse.data.included || [];
+        const profile = profileData.data;
+        const included = profileData.included || [];
         const email = included.find((i: any) => i.type === 'Email')?.attributes?.address || null;
         const phone = included.find((i: any) => i.type === 'PhoneNumber')?.attributes?.national || null;
   
-        const blockouts = blockoutsResponse.data.data.map((b: any) => ({
+        const blockouts = blockoutsData.data.map((b: any) => ({
           startDate: b.attributes.starts_at,
           endDate: b.attributes.ends_at,
           reason: b.attributes.reason || null,
@@ -257,31 +244,20 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
     const blockoutsByMember = await this.getBlockoutsByMember(members);
 
 
-    const [mainResponse, northResponse] = await Promise.all([
-      firstValueFrom(
-        this.httpService.get(
-          `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
-          { headers: this.getAuthHeader() },
-        ),
-      ),
-      firstValueFrom(
-        this.httpService.get(
-          `${this.baseUrl}/services/v2/service_types/${this.NORTH_SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
-          { headers: this.getAuthHeader() },
-        ),
-      ),
+    const [mainData, northData] = await Promise.all([
+      this.cachedGet(`${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`, 6 * 60 * 60 * 1000),
+      this.cachedGet(`${this.baseUrl}/services/v2/service_types/${this.NORTH_SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`, 6 * 60 * 60 * 1000),
     ]);
+
 
     const processPlan = async (p: any, serviceType: string) => {
       const serviceTypeId = serviceType === 'Sunday Service' ? this.SUNDAY_SERVICE_ID : this.NORTH_SUNDAY_SERVICE_ID;
       try {
-        const teamResponse = await firstValueFrom(
-          this.httpService.get(
-            `${this.baseUrl}/services/v2/service_types/${serviceTypeId}/plans/${p.id}/team_members?per_page=100`,
-            { headers: this.getAuthHeader() },
-          ),
+        const teamData = await this.cachedGet(
+          `${this.baseUrl}/services/v2/service_types/${serviceTypeId}/plans/${p.id}/team_members?per_page=100`,
+          3 * 60 * 1000,
         );
-        const ya34Members = teamResponse.data.data.filter(
+        const ya34Members = teamData.data.filter(
           (tm: any) => ya34MemberIds.has(tm.relationships.person.data.id),
         );
         const planDate = p.attributes.sort_date.slice(0, 10);
@@ -320,10 +296,10 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
       }
     };
 
-    const plansToProcess = [
-      ...mainResponse.data.data.map((p: any) => ({ p, serviceType: 'Sunday Service' })),
-      ...northResponse.data.data.map((p: any) => ({ p, serviceType: 'North Sunday Service' })),
-    ];
+      const plansToProcess = [
+        ...mainData.data.map((p: any) => ({ p, serviceType: 'Sunday Service' })),
+        ...northData.data.map((p: any) => ({ p, serviceType: 'North Sunday Service' })),
+      ];
 
     const allPlans = await this.mapWithConcurrency(plansToProcess, 5, ({ p, serviceType }) =>
       processPlan(p, serviceType),
@@ -356,16 +332,7 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   }
 
   async getAllServicePlans() {
-    const members = await this.getCached('ya34-members', 30000, async () => {
-    const res = await firstValueFrom(
-      this.httpService.get(
-        `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
-        { headers: this.getAuthHeader() },
-      ),
-    );
-    return res.data.data;
-  });
-
+    const members = await this.getYA34Members();
     const ya34MemberIds = new Set(members.map((m: any) => m.id));
     const now = new Date();
     const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -385,22 +352,13 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
 
     const responses = await Promise.all(
       serviceTypes.map(async type => {
-        const [futureRes, pastRes] = await Promise.all([
-          firstValueFrom(
-            this.httpService.get(
-              `${this.baseUrl}/services/v2/service_types/${type.id}/plans?filter=future&per_page=10`,
-              { headers: this.getAuthHeader() },
-            ),
-          ),
-          firstValueFrom(
-            this.httpService.get(
-              `${this.baseUrl}/services/v2/service_types/${type.id}/plans?filter=past&per_page=15&order=-sort_date`,
-              { headers: this.getAuthHeader() },
-            ),
-          ),
+        const [futureData, pastData] = await Promise.all([
+          this.cachedGet(`${this.baseUrl}/services/v2/service_types/${type.id}/plans?filter=future&per_page=10`, 6 * 60 * 60 * 1000),
+          this.cachedGet(`${this.baseUrl}/services/v2/service_types/${type.id}/plans?filter=past&per_page=15&order=-sort_date`, 6 * 60 * 60 * 1000),
         ]);
 
-        const allPlans = [...futureRes.data.data, ...pastRes.data.data];
+        const allPlans = [...futureData.data, ...pastData.data];
+
 
         return Promise.all(allPlans.map(async (p: any) => {
           if (!shouldFetchMembers(p.attributes.sort_date)) {
@@ -414,13 +372,11 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
           }
 
           try {
-            const teamRes = await firstValueFrom(
-              this.httpService.get(
-                `${this.baseUrl}/services/v2/service_types/${type.id}/plans/${p.id}/team_members?per_page=100`,
-                { headers: this.getAuthHeader() },
-              ),
+            const teamData = await this.cachedGet(
+              `${this.baseUrl}/services/v2/service_types/${type.id}/plans/${p.id}/team_members?per_page=100`,
+              3 * 60 * 1000,
             );
-            const ya34Members = teamRes.data.data.filter(
+            const ya34Members = teamData.data.filter(
               (tm: any) => ya34MemberIds.has(tm.relationships.person.data.id),
             );
             return {
