@@ -13,7 +13,23 @@ export class PlanningCenterService {
   private readonly SUNDAY_SERVICE_ID = '726211';
   private readonly NORTH_SUNDAY_SERVICE_ID = '1793098';
 
-  constructor(private readonly httpService: HttpService) {}
+  constructor(private readonly httpService: HttpService) {
+  let requestCount = 0;
+
+  this.httpService.axiosRef.interceptors.request.use((config) => {
+    requestCount++;
+    console.log(`[PCO] #${requestCount} → ${config.method?.toUpperCase()} ${config.url}`);
+    return config;
+  });
+
+  this.httpService.axiosRef.interceptors.response.use((response) => {
+    const used = response.headers['x-pco-api-request-rate-count'];
+    const limit = response.headers['x-pco-api-request-rate-limit'];
+    console.log(`[PCO] rate limit: ${used}/${limit}`);
+    return response;
+  });
+}
+
 
   private getAuthHeader() {
     const token = Buffer.from(`${this.appId}:${this.secret}`).toString('base64');
@@ -30,18 +46,24 @@ export class PlanningCenterService {
     return dateStr >= start && dateStr <= end;
     });
   }
-  private cache = new Map<string, { data: any; expiresAt: number }>();
+  private cache = new Map<string, { promise: Promise<any>; expiresAt: number }>();
 
-  private async getCached<T>(key: string, ttlMs: number, fetchFn: () => Promise<T>): Promise<T> {
+  private getCached<T>(key: string, ttlMs: number, fetchFn: () => Promise<T>): Promise<T> {
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.data as T;
+      return cached.promise;
     }
-    const data = await fetchFn();
-    this.cache.set(key, { data, expiresAt: Date.now() + ttlMs });
-    return data;
+    const promise = fetchFn();
+    this.cache.set(key, { promise, expiresAt: Date.now() + ttlMs });
+    return promise;
   }
 
+  private async cachedGet(url: string, ttlMs = 30000): Promise<any> {
+  return this.getCached(url, ttlMs, async () => {
+    const res = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeader() }));
+    return res.data;
+  });
+}
   
   private async mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
@@ -140,8 +162,8 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   );
 
   // Step 4: Enrich each member
-  const enriched = await Promise.all(
-    members.map(async (member: any) => {
+  const enriched = await this.mapWithConcurrency(members, 5, async (member: any) => {
+  
       const serving930 = teamMembers930.filter(
         (tm: any) => tm.relationships.person.data.id === member.id,
       );
@@ -224,39 +246,16 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
           blockouts: [],
         };
       }
-    }),
-  );
+  });
 
   return enriched;
 }
 
   async getUpcomingEvents() {
-    const membersResponse = await firstValueFrom(
-      this.httpService.get(
-        `${this.baseUrl}/services/v2/people?where[tag_ids][]=${this.YA3_TAG_ID}&where[tag_ids][]=${this.YA4_TAG_ID}&per_page=100`,
-        { headers: this.getAuthHeader() },
-      ),
-    );
-    const ya34MemberIds = new Set(membersResponse.data.data.map((m: any) => m.id));
-    const blockoutsByMember = new Map<string, { startDate: string; endDate: string }[]>();
+    const members = await this.getYA34Members();
+    const ya34MemberIds = new Set(members.map((m: any) => m.id));
+    const blockoutsByMember = await this.getBlockoutsByMember(members);
 
-      await this.mapWithConcurrency(
-        membersResponse.data.data, 5, async (m: any) => {
-          try {
-            const res = await firstValueFrom(
-              this.httpService.get(
-                `${this.baseUrl}/services/v2/people/${m.id}/blockouts?filter=future`,
-                { headers: this.getAuthHeader() },
-              ),
-            );
-            blockoutsByMember.set(m.id, res.data.data.map((b: any) => ({
-              startDate: b.attributes.starts_at,
-              endDate: b.attributes.ends_at,
-            })));
-          } catch {
-            blockoutsByMember.set(m.id, []);
-          }
-        });
 
     const [mainResponse, northResponse] = await Promise.all([
       firstValueFrom(
@@ -321,10 +320,15 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
       }
     };
 
-    const allPlans = await Promise.all([
-      ...mainResponse.data.data.map((p: any) => processPlan(p, 'Sunday Service')),
-      ...northResponse.data.data.map((p: any) => processPlan(p, 'North Sunday Service')),
-    ]);
+    const plansToProcess = [
+      ...mainResponse.data.data.map((p: any) => ({ p, serviceType: 'Sunday Service' })),
+      ...northResponse.data.data.map((p: any) => ({ p, serviceType: 'North Sunday Service' })),
+    ];
+
+    const allPlans = await this.mapWithConcurrency(plansToProcess, 5, ({ p, serviceType }) =>
+      processPlan(p, serviceType),
+    );
+
 
     const grouped: Record<string, any[]> = {};
     for (const plan of allPlans) {
