@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { apiFetch } from '@/lib/api'
 
 interface ServingMember {
   name: string
@@ -53,8 +54,7 @@ export default function CalendarPage() {
   const [selectedEvent, setSelectedEvent] = useState<PlanEvent | null>(null)
 
   useEffect(() => {
-    fetch('http://localhost:3001/planning-center/all-plans')
-      .then(res => res.json())
+    apiFetch('/planning-center/all-plans')
       .then(data => setEvents(data))
   }, [])
 

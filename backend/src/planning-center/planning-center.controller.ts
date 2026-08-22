@@ -1,7 +1,10 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { PlanningCenterService } from './planning-center.service';
+import { PasswordGuard } from './password.guard';
+
 
 @Controller('planning-center')
+@UseGuards(PasswordGuard)
 export class PlanningCenterController {
   constructor(private readonly planningCenterService: PlanningCenterService) {}
 
@@ -24,4 +27,10 @@ export class PlanningCenterController {
   getAllServicePlans() {
     return this.planningCenterService.getAllServicePlans();
   }
+
+  @Get('ping')
+    ping() {
+      return { ok: true };
+  }
+
 }

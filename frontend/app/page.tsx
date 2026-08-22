@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link' 
+import { apiFetch } from '@/lib/api'
 
 interface Role {
   position: string
@@ -160,7 +161,15 @@ function TopNav() {
             </Link>
           ))}
         </nav>
-        <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center text-xs font-bold">JC</div>
+        <button
+          onClick={() => {
+            sessionStorage.removeItem('appPassword')
+            window.location.href = '/login'
+          }}
+          className="text-xs font-medium text-gray-500 hover:text-gray-900"
+        >
+          Log out
+        </button>
       </div>
     </header>
   )
@@ -173,13 +182,12 @@ export default function Home() {
   const [eventsLoaded, setEventsLoaded] = useState(false)
 
   useEffect(() => {
-    fetch('http://localhost:3001/planning-center/members-with-service')
-      .then((res) => res.json())
-      .then((data) => setPeople(data))
-      .finally(() => setPeopleLoaded(true))
+    apiFetch('/planning-center/members-with-service')
+    .then((data) => setPeople(data))
+    .finally(() => setPeopleLoaded(true))
 
-    fetch('http://localhost:3001/planning-center/upcoming-events')
-      .then((res) => res.json())
+
+    apiFetch('/planning-center/upcoming-events')
       .then((data) => setUpcomingEvents(data))
       .finally(() => setEventsLoaded(true))
   }, [])
