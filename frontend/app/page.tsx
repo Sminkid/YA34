@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import TopNav from '@/components/TopNav'
 import { apiFetch } from '@/lib/api'
+import { useRequireAuth } from '@/lib/useRequireAuth'
+
 
 interface Role {
   position: string
@@ -132,12 +134,16 @@ const STAT_META = [
 ]
 
 export default function Home() {
+  const checked = useRequireAuth()
   const [people, setPeople] = useState<Person[]>([])
   const [peopleLoaded, setPeopleLoaded] = useState(false)
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([])
   const [eventsLoaded, setEventsLoaded] = useState(false)
 
+
   useEffect(() => {
+    if (!checked) return;
+
     apiFetch('/planning-center/members-with-service')
     .then((data) => setPeople(data))
     .finally(() => setPeopleLoaded(true))
@@ -153,6 +159,8 @@ export default function Home() {
     people.filter((p) => p.servingThisSunday).length.toString(),
     upcomingEvents.length.toString(),
   ]
+  
+  if (!checked) return null
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">

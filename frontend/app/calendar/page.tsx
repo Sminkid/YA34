@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import TopNav from '@/components/TopNav'
+import { useRequireAuth } from '@/lib/useRequireAuth'
 
 interface ServingMember {
   name: string
@@ -47,13 +48,17 @@ function getFirstDayOfMonth(year: number, month: number) {
 }
 
 export default function CalendarPage() {
+  const checked = useRequireAuth()
   const today = new Date()
   const [currentMonth, setCurrentMonth] = useState(today.getMonth())
   const [currentYear, setCurrentYear] = useState(today.getFullYear())
   const [events, setEvents] = useState<PlanEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<PlanEvent | null>(null)
 
+
   useEffect(() => {
+    if (!checked) return;
+
     apiFetch('/planning-center/all-plans')
       .then(data => setEvents(data))
   }, [])
@@ -100,6 +105,8 @@ export default function CalendarPage() {
   ]
 
   while (cells.length % 7 !== 0) cells.push(null)
+
+    if (!checked) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
