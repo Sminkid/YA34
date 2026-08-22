@@ -1,7 +1,9 @@
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+
 export async function apiFetch(path: string) {
   const password = sessionStorage.getItem('appPassword')
 
-  const res = await fetch(`http://localhost:3001${path}`, {
+  const res = await fetch(`${API_URL}${path}`, {
     headers: { 'x-app-password': password || '' },
   })
 
