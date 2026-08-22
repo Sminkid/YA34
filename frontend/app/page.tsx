@@ -152,14 +152,14 @@ export default function Home() {
     apiFetch('/planning-center/upcoming-events')
       .then((data) => setUpcomingEvents(data))
       .finally(() => setEventsLoaded(true))
-  }, [])
+  }, [checked])
 
   const statValues = [
     people.length.toString(),
     people.filter((p) => p.servingThisSunday).length.toString(),
     upcomingEvents.length.toString(),
   ]
-  
+
   if (!checked) return null
 
   return (

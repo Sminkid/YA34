@@ -61,7 +61,7 @@ export default function CalendarPage() {
 
     apiFetch('/planning-center/all-plans')
       .then(data => setEvents(data))
-  }, [])
+  }, [checked])
 
   const prevMonth = () => {
     if (currentMonth === 0) {
