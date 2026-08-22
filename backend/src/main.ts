@@ -3,8 +3,10 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableCors();
-  await app.listen(3001);
+  app.enableCors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+});
+  await app.listen(process.env.PORT || 3001);
   console.log('YA34 backend running on http://localhost:3001');
 }
 bootstrap();
