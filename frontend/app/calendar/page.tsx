@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { apiFetch } from '@/lib/api'
+import TopNav from '@/components/TopNav'
 
 interface ServingMember {
   name: string
@@ -53,8 +54,7 @@ export default function CalendarPage() {
   const [selectedEvent, setSelectedEvent] = useState<PlanEvent | null>(null)
 
   useEffect(() => {
-    fetch('http://localhost:3001/planning-center/all-plans')
-      .then(res => res.json())
+    apiFetch('/planning-center/all-plans')
       .then(data => setEvents(data))
   }, [])
 
@@ -103,29 +103,7 @@ export default function CalendarPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
-      <header className="sticky top-0 z-10 bg-white border-b border-gray-200">
-        <div className="px-6 md:px-10 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="w-8 h-8 rounded-md bg-gray-900 flex items-center justify-center text-white text-sm font-bold">Y</div>
-            <span className="text-sm font-bold tracking-tight text-gray-900">YA34</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-1 ml-8">
-            {['Dashboard', 'Members', 'Calendar', 'CG Plan'].map(item => (
-              <Link
-                key={item}
-                href={item === 'Dashboard' ? '/' : `/${item.toLowerCase().replace(' ', '-')}`}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  item === 'Calendar' ? 'bg-gray-100 text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                {item}
-              </Link>
-            ))}
-          </nav>
-          <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center text-xs font-bold">JC</div>
-        </div>
-      </header>
-
+      <TopNav />
       <main className="px-6 py-8 md:px-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
