@@ -14,17 +14,22 @@ function LoginForm() {
     e.preventDefault()
     setError(false)
 
-    const res = await fetch(`${API_URL}/planning-center/ping`, {
-      headers: { 'x-app-password': password },
-    })
+    try {
+        const res = await fetch(`${API_URL}/planning-center/ping`, {
+        headers: { 'x-app-password': password },
+        })
 
-    if (res.ok) {
-      sessionStorage.setItem('appPassword', password)
-      window.location.href = '/'
-    } else {
-      setError(true)
+        if (res.ok) {
+        sessionStorage.setItem('appPassword', password)
+        window.location.href = '/'
+        } else {
+        setError(true)
+        }
+    } catch {
+        setError(true)
     }
-  }
+    }
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
