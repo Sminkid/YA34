@@ -14,21 +14,27 @@ function LoginForm() {
     e.preventDefault()
     setError(false)
 
-    try {
-        const res = await fetch(`${API_URL}/planning-center/ping`, {
-        headers: { 'x-app-password': password },
-        })
+    console.log('submitting password, length:', password.length)
 
-        if (res.ok) {
+    try {
+      const res = await fetch(`${API_URL}/planning-center/ping`, {
+        headers: { 'x-app-password': password },
+      })
+
+      console.log('response status:', res.status)
+
+      if (res.ok) {
         sessionStorage.setItem('appPassword', password)
         window.location.href = '/'
-        } else {
+      } else {
         setError(true)
-        }
-    } catch {
-        setError(true)
+      }
+    } catch (err) {
+      console.log('fetch threw an error:', err)
+      setError(true)
     }
-    }
+  }
+
 
 
   return (
