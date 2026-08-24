@@ -121,27 +121,31 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   // Step 1: Get all YA3/YA4 tagged members
     const members = await this.getYA34Members();
 
-  // Step 2: Dynamically fetch the next upcoming Sunday plans
-  const upcomingPlansData = await this.cachedGet(
-    `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
-    6 * 60 * 60 * 1000,
-  );
+    // Step 2: Dynamically fetch every plan happening this coming Sunday, however many there are
+    const upcomingPlansData = await this.cachedGet(
+      `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
+      6 * 60 * 60 * 1000,
+    );
 
-  const upcomingPlans = upcomingPlansData.data;
-  const next930 = upcomingPlans.find((p: any) => p.attributes.title === '9:30am');
-  const next1130 = upcomingPlans.find((p: any) => p.attributes.title === '11:30am');
+    const upcomingPlans = upcomingPlansData.data;
+    if (upcomingPlans.length === 0) return [];
 
-  if (!next930 || !next1130) return [];
+    const sortedPlans = [...upcomingPlans].sort(
+      (a: any, b: any) => new Date(a.attributes.sort_date).getTime() - new Date(b.attributes.sort_date).getTime(),
+    );
+    const sundayDate = sortedPlans[0].attributes.sort_date.slice(0, 10); // "YYYY-MM-DD"
+    const sundayPlans = upcomingPlans.filter(
+      (p: any) => p.attributes.sort_date.slice(0, 10) === sundayDate,
+    );
 
-  const sundayDate = next930.attributes.sort_date.slice(0, 10); // "YYYY-MM-DD"
+    const sundayTeams = await this.mapWithConcurrency(sundayPlans, 5, async (p: any) => {
+      const teamData = await this.cachedGet(
+        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${p.id}/team_members?per_page=100`,
+        3 * 60 * 1000,
+      );
+      return { title: p.attributes.title, teamMembers: teamData.data };
+    });
 
-  const [plan930Data, plan1130Data] = await Promise.all([
-    this.cachedGet(`${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next930.id}/team_members?per_page=100`, 3 * 60 * 1000),
-    this.cachedGet(`${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${next1130.id}/team_members?per_page=100`, 3 * 60 * 1000),
-  ]);
-
-  const teamMembers930 = plan930Data.data;
-  const teamMembers1130 = plan1130Data.data;
 
 
   // Step 3: Fetch team names
@@ -161,33 +165,27 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   // Step 4: Enrich each member
   const enriched = await this.mapWithConcurrency(members, 5, async (member: any) => {
   
-      const serving930 = teamMembers930.filter(
-        (tm: any) => tm.relationships.person.data.id === member.id,
-      );
-      const serving1130 = teamMembers1130.filter(
-        (tm: any) => tm.relationships.person.data.id === member.id,
-      );
+      const roles: any[] = [];
+      let servingThisSunday = false;
 
-      const roles = [
-        ...serving930.map((s: any) => ({
-          position: s.attributes.team_position_name,
-          department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
-          service: '9:30am',
-          status: s.attributes.status === 'C' ? 'Confirmed' :
-                  s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
-        })),
-        ...serving1130.map((s: any) => ({
-          position: s.attributes.team_position_name,
-          department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
-          service: '11:30am',
-          status: s.attributes.status === 'C' ? 'Confirmed' :
-                  s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
-        })),
-      ];
+      for (const { title, teamMembers } of sundayTeams) {
+        const servingThisPlan = teamMembers.filter(
+          (tm: any) => tm.relationships.person.data.id === member.id,
+        );
+        roles.push(
+          ...servingThisPlan.map((s: any) => ({
+            position: s.attributes.team_position_name,
+            department: teamMap.get(s.relationships.team.data.id) || 'Unknown',
+            service: title,
+            status: s.attributes.status === 'C' ? 'Confirmed' :
+                    s.attributes.status === 'D' ? 'Declined' : 'Unconfirmed',
+          })),
+        );
+        if (servingThisPlan.some((s: any) => s.attributes.status !== 'D')) {
+          servingThisSunday = true;
+        }
+      }
 
-      const servingThisSunday =
-        serving930.some((s: any) => s.attributes.status !== 'D') ||
-        serving1130.some((s: any) => s.attributes.status !== 'D');
 
       try {
         const [profileData, blockoutsData] = await Promise.all([
