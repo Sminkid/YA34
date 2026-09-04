@@ -62,11 +62,22 @@ export class PlanningCenterService {
     return promise;
   }
 
-  private async cachedGet(url: string, ttlMs = 30000): Promise<any> {
-  return this.getCached(url, ttlMs, async () => {
+  private async fetchWithRetry(url: string, retries = 3, backoffMs = 2000): Promise<any> {
+  try {
     const res = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeader() }));
     return res.data;
-  });
+  } catch (err: any) {
+    if (err?.response?.status === 429 && retries > 0) {
+      console.log(`[PCO] 429 hit on ${url}, retrying in ${backoffMs}ms (${retries} left)`);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      return this.fetchWithRetry(url, retries - 1, backoffMs * 2);
+    }
+    throw err;
+  }
+}
+
+  private async cachedGet(url: string, ttlMs = 30000): Promise<any> {
+  return this.getCached(url, ttlMs, () => this.fetchWithRetry(url));
 }
   
   private async mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -299,7 +310,8 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
             };
           }),
         };
-      } catch {
+          } catch (err: any) {
+          console.error(`[processPlan] failed for ${serviceType} plan ${p.id}:`, err?.response?.status, err?.response?.data || err.message);
         return {
           id: p.id,
           date: p.attributes.dates,
