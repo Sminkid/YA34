@@ -121,46 +121,64 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   // Step 1: Get all YA3/YA4 tagged members
     const members = await this.getYA34Members();
 
-    // Step 2: Dynamically fetch every plan happening this coming Sunday, however many there are
-    const upcomingPlansData = await this.cachedGet(
-      `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
-      6 * 60 * 60 * 1000,
-    );
+        // Step 2: Dynamically fetch every plan happening this coming Sunday, across both Sunday Service and North Sunday Service
+    const [mainPlansData, northPlansData] = await Promise.all([
+      this.cachedGet(
+        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
+        6 * 60 * 60 * 1000,
+      ),
+      this.cachedGet(
+        `${this.baseUrl}/services/v2/service_types/${this.NORTH_SUNDAY_SERVICE_ID}/plans?filter=future&per_page=20`,
+        6 * 60 * 60 * 1000,
+      ),
+    ]);
 
-    const upcomingPlans = upcomingPlansData.data;
+    const upcomingPlans = [
+      ...mainPlansData.data.map((p: any) => ({ ...p, serviceTypeId: this.SUNDAY_SERVICE_ID })),
+      ...northPlansData.data.map((p: any) => ({ ...p, serviceTypeId: this.NORTH_SUNDAY_SERVICE_ID })),
+    ];
     if (upcomingPlans.length === 0) return [];
 
     const sortedPlans = [...upcomingPlans].sort(
       (a: any, b: any) => new Date(a.attributes.sort_date).getTime() - new Date(b.attributes.sort_date).getTime(),
     );
-    const sundayDate = sortedPlans[0].attributes.sort_date.slice(0, 10); // "YYYY-MM-DD"
+    const sundayDate = sortedPlans[0].attributes.sort_date.slice(0, 10);
     const sundayPlans = upcomingPlans.filter(
       (p: any) => p.attributes.sort_date.slice(0, 10) === sundayDate,
     );
 
     const sundayTeams = await this.mapWithConcurrency(sundayPlans, 5, async (p: any) => {
       const teamData = await this.cachedGet(
-        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/plans/${p.id}/team_members?per_page=100`,
+        `${this.baseUrl}/services/v2/service_types/${p.serviceTypeId}/plans/${p.id}/team_members?per_page=100`,
         3 * 60 * 1000,
       );
       return { title: p.attributes.title, teamMembers: teamData.data };
     });
 
-
-
-  // Step 3: Fetch team names
-  const teamsResponse = await this.getCached('teams', 6 * 60 * 60 * 1000, () =>
-    firstValueFrom(
-      this.httpService.get(
-        `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/teams`,
-        { headers: this.getAuthHeader() },
+    // Step 3: Fetch team names from both service types
+    const [sundayTeamsResp, northTeamsResp] = await Promise.all([
+      this.getCached('teams-sunday', 6 * 60 * 60 * 1000, () =>
+        firstValueFrom(
+          this.httpService.get(
+            `${this.baseUrl}/services/v2/service_types/${this.SUNDAY_SERVICE_ID}/teams`,
+            { headers: this.getAuthHeader() },
+          ),
+        ),
       ),
-    ),
-  );
+      this.getCached('teams-north', 6 * 60 * 60 * 1000, () =>
+        firstValueFrom(
+          this.httpService.get(
+            `${this.baseUrl}/services/v2/service_types/${this.NORTH_SUNDAY_SERVICE_ID}/teams`,
+            { headers: this.getAuthHeader() },
+          ),
+        ),
+      ),
+    ]);
 
-  const teamMap = new Map(
-    teamsResponse.data.data.map((t: any) => [t.id, t.attributes.name])
-  );
+    const teamMap = new Map([
+      ...sundayTeamsResp.data.data.map((t: any) => [t.id, t.attributes.name]),
+      ...northTeamsResp.data.data.map((t: any) => [t.id, t.attributes.name]),
+    ]);
 
   // Step 4: Enrich each member
   const enriched = await this.mapWithConcurrency(members, 5, async (member: any) => {
