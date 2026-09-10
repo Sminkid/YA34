@@ -137,14 +137,14 @@ function getStatusLabel(person: Person): string {
     return 'Serving Sunday'
   }
   if (person.roles.length > 0) return 'Declined Serving Sunday'
-  return 'Not serving'
+  return 'Not Serving'
 }
 
 function buildExportText(people: Person[]): string {
 
   const rows = people.map((person) => {
     const status = getStatusLabel(person)
-    return `- ${person.name} -\t${status}`
+    return `- ${person.name}\t- ${status}`
   })
   return [...rows].join('\n')
 }
