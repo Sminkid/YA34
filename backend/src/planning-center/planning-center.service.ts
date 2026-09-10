@@ -102,9 +102,9 @@ private async getYA34Members(): Promise<any[]> {
   });
 }
 
-private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startDate: string; endDate: string }[]>> {
+private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startDate: string; endDate: string; reason: string | null }[]>> {
   return this.getCached('blockouts-by-member', 6 * 60 * 60 * 1000, async () => {
-    const map = new Map<string, { startDate: string; endDate: string }[]>();
+    const map = new Map<string, { startDate: string; endDate: string; reason: string | null }[]>();
     await this.mapWithConcurrency(members, 5, async (m: any) => {
       try {
         const res = await firstValueFrom(
@@ -116,6 +116,7 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
         map.set(m.id, res.data.data.map((b: any) => ({
           startDate: b.attributes.starts_at,
           endDate: b.attributes.ends_at,
+          reason: b.attributes.reason || null,
         })));
       } catch {
         map.set(m.id, []);
@@ -131,6 +132,8 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   async getMembersWithServiceStatus() {
   // Step 1: Get all YA3/YA4 tagged members
     const members = await this.getYA34Members();
+    const blockoutsByMember = await this.getBlockoutsByMember(members);
+
 
         // Step 2: Dynamically fetch every plan happening this coming Sunday, across both Sunday Service and North Sunday Service
     const [mainPlansData, northPlansData] = await Promise.all([
@@ -163,8 +166,10 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
         `${this.baseUrl}/services/v2/service_types/${p.serviceTypeId}/plans/${p.id}/team_members?per_page=100`,
         3 * 60 * 1000,
       );
-      return { title: p.attributes.title, teamMembers: teamData.data };
+      const title = p.serviceTypeId === this.NORTH_SUNDAY_SERVICE_ID ? '4:00pm' : p.attributes.title;
+      return { title, teamMembers: teamData.data };
     });
+
 
     // Step 3: Fetch team names from both service types
     const [sundayTeamsResp, northTeamsResp] = await Promise.all([
@@ -216,24 +221,18 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
       }
 
 
-      try {
-        const [profileData, blockoutsData] = await Promise.all([
-          this.cachedGet(`${this.baseUrl}/people/v2/people/${member.id}?include=emails,phone_numbers`, 6 * 60 * 60 * 1000),
-          this.cachedGet(`${this.baseUrl}/services/v2/people/${member.id}/blockouts?filter=future`, 6 * 60 * 60 * 1000),
-        ]);
+        try {
+          const profileData = await this.cachedGet(`${this.baseUrl}/people/v2/people/${member.id}?include=emails,phone_numbers`, 6 * 60 * 60 * 1000);
 
-        const profile = profileData.data;
-        const included = profileData.included || [];
-        const email = included.find((i: any) => i.type === 'Email')?.attributes?.address || null;
-        const phone = included.find((i: any) => i.type === 'PhoneNumber')?.attributes?.national || null;
-  
-        const blockouts = blockoutsData.data.map((b: any) => ({
-          startDate: b.attributes.starts_at,
-          endDate: b.attributes.ends_at,
-          reason: b.attributes.reason || null,
-        }));
+          const profile = profileData.data;
+          const included = profileData.included || [];
+          const email = included.find((i: any) => i.type === 'Email')?.attributes?.address || null;
+          const phone = included.find((i: any) => i.type === 'PhoneNumber')?.attributes?.national || null;
 
-        const unavailableThisSunday = this.isBlockedOutOn(blockouts, sundayDate);
+          const blockouts = blockoutsByMember.get(member.id) || [];
+
+          const unavailableThisSunday = this.isBlockedOutOn(blockouts, sundayDate);
+
 
         return {
           id: member.id,
