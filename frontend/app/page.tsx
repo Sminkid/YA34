@@ -129,6 +129,27 @@ function SkeletonRow() {
   return <div className="skeleton h-14 rounded-lg" />
 }
 
+function getStatusLabel(person: Person): string {
+  if (person.unavailableThisSunday) return 'Not Available'
+  if (person.servingThisSunday) {
+    if (person.servingMain && person.servingNorth) return 'Serving Both'
+    if (person.servingNorth) return 'Serving North'
+    return 'Serving Sunday'
+  }
+  if (person.roles.length > 0) return 'Declined Serving Sunday'
+  return 'Not serving'
+}
+
+function buildExportText(people: Person[]): string {
+
+  const rows = people.map((person) => {
+    const status = getStatusLabel(person)
+    return `- ${person.name} -\t${status}`
+  })
+  return [...rows].join('\n')
+}
+
+
 const STAT_META = [
   { label: 'Total members', icon: <UsersIcon />, iconBg: 'bg-blue-50', iconText: 'text-blue-600' },
   { label: 'Serving this Sunday', icon: <CheckBadgeIcon />, iconBg: 'bg-emerald-50', iconText: 'text-emerald-600' },
@@ -141,6 +162,9 @@ export default function Home() {
   const [peopleLoaded, setPeopleLoaded] = useState(false)
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([])
   const [eventsLoaded, setEventsLoaded] = useState(false)
+  const [showExport, setShowExport] = useState(false)
+  const [copied, setCopied] = useState(false)
+
 
 
   useEffect(() => {
@@ -161,6 +185,16 @@ export default function Home() {
     people.filter((p) => p.servingThisSunday).length.toString(),
     upcomingEvents.length.toString(),
   ]
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(buildExportText(people))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard API blocked — the textarea's click-to-select still works
+    }
+  }
 
   if (!checked) return null
 
@@ -196,9 +230,17 @@ export default function Home() {
           <section className="rounded-lg bg-white border border-gray-200 p-5 h-[600px] flex flex-col">
             <div className="flex items-center justify-between pb-3 mb-2 border-b border-gray-200">
               <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Members</h2>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 rounded px-2 py-0.5">
-                YA3 + YA4
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 rounded px-2 py-0.5">
+                  YA3 + YA4
+                </span>
+                <button
+                  onClick={() => setShowExport(true)}
+                  className="text-[10px] font-bold uppercase tracking-wider text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded px-2 py-0.5 transition-colors"
+                >
+                  Export
+                </button>
+              </div>
             </div>
             <div className="flex flex-col divide-y divide-gray-100 overflow-y-auto flex-1">
               {!peopleLoaded ? (
@@ -336,6 +378,40 @@ export default function Home() {
           </section>
 
         </div>
+        {showExport && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+            onClick={() => setShowExport(false)}
+          >
+            <div
+              className="bg-white rounded-xl shadow-xl p-6 w-[32rem] max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-gray-900">Export Members</h3>
+                <button
+                  onClick={() => setShowExport(false)}
+                  className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                >
+                  ✕
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={buildExportText(people)}
+                className="flex-1 min-h-[16rem] text-xs font-mono border border-gray-200 rounded-md p-3 resize-none"
+                onFocus={(e) => e.target.select()}
+              />
+              <button
+                onClick={handleCopy}
+                className="mt-4 bg-gray-900 text-white rounded-md py-2 text-sm font-medium"
+              >
+                {copied ? 'Copied!' : 'Copy to Clipboard'}
+              </button>
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   )
