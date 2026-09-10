@@ -21,6 +21,8 @@ interface Person {
   email: string | null
   phone: string | null
   servingThisSunday: boolean
+  servingMain: boolean
+  servingNorth: boolean
   roles: Role[]
   unavailableThisSunday: boolean
 }
@@ -224,7 +226,11 @@ export default function Home() {
                       ) : person.servingThisSunday ? (
                         <>
                           <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                            Serving Sunday
+                            {person.servingMain && person.servingNorth
+                              ? 'Serving Both'
+                              : person.servingNorth
+                              ? 'Serving North'
+                              : 'Serving Sunday'}
                           </span>
                           {person.roles.map((role, i) => (
                             <span key={i} className="text-[11px] text-gray-400">
@@ -232,6 +238,7 @@ export default function Home() {
                             </span>
                           ))}
                         </>
+
                       ) : person.roles.length > 0 ? (
                         <>
                           <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-50 text-red-700">

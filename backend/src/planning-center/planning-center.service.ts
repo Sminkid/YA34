@@ -167,7 +167,7 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
         3 * 60 * 1000,
       );
       const title = p.serviceTypeId === this.NORTH_SUNDAY_SERVICE_ID ? '4:00pm' : p.attributes.title;
-      return { title, teamMembers: teamData.data };
+      return { title, teamMembers: teamData.data, serviceTypeId: p.serviceTypeId };
     });
 
 
@@ -201,8 +201,10 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
   
       const roles: any[] = [];
       let servingThisSunday = false;
+      let servingMain = false;
+      let servingNorth = false;
 
-      for (const { title, teamMembers } of sundayTeams) {
+      for (const { title, teamMembers, serviceTypeId } of sundayTeams) {
         const servingThisPlan = teamMembers.filter(
           (tm: any) => tm.relationships.person.data.id === member.id,
         );
@@ -217,8 +219,14 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
         );
         if (servingThisPlan.some((s: any) => s.attributes.status !== 'D')) {
           servingThisSunday = true;
+          if (serviceTypeId === this.NORTH_SUNDAY_SERVICE_ID) {
+            servingNorth = true;
+          } else {
+            servingMain = true;
+          }
         }
       }
+
 
 
         try {
@@ -242,6 +250,8 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
           email,
           phone,
           servingThisSunday,
+          servingMain,
+          servingNorth,
           roles,
           blockouts,
           unavailableThisSunday,
@@ -255,6 +265,9 @@ private async getBlockoutsByMember(members: any[]): Promise<Map<string, { startD
           email: null,
           phone: null,
           servingThisSunday,
+          servingMain,
+          servingNorth,
+
           roles,
           blockouts: [],
         };
