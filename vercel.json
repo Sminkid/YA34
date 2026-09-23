@@ -5,7 +5,8 @@
             "framework": "nextjs"
         },
         "backend": {
-            "root": "backend"
+            "root": "backend",
+            "framework": "nestjs"
         }
     },
     "rewrites": [
