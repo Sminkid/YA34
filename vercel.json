@@ -12,14 +12,14 @@
         {
             "source": "/api/backend(/.*)?",
             "destination": {
-                "type": "service",
+                "type": "Nestjs",
                 "service": "backend"
             }
         },
         {
             "source": "/(.*)",
             "destination": {
-                "type": "service",
+                "type": "Nextjs",
                 "service": "frontend"
             }
         }
